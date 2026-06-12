@@ -9,6 +9,9 @@ var config = new ConfigurationBuilder()
     .Build();
 
 var apiKey = config["OpenAI:ApiKey"]!;
+var weatherApiKey = config["OpenWeatherMap:ApiKey"];
+
+
 var client = new ChatClient("gpt-4o-mini", apiKey);
 
 var messages = new List<ChatMessage>();
@@ -56,16 +59,34 @@ var options = new ChatCompletionOptions
     Tools = { getWeatherToll, getTimeTool }
 };
 
-static string GetWeather(string city)
+
+static async Task<string> GetWeather(string city, string apiKey)
 {
-    return city.ToLower() switch
-    {
-        "paris" => "22°C, Sunny",
-        "london" => "15°C, Cloudy",
-        "cairo" => "35°C, Hot",
-        _ => "20°C, Clear"
-    };
+    using var http = new HttpClient();
+
+    var url = $"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={apiKey}&units=metric";
+
+    var response = await http.GetStringAsync(url);
+    var json = JsonDocument.Parse(response);
+
+    var temp = json.RootElement.GetProperty("main").GetProperty("temp").GetDouble();
+    var description = json.RootElement.GetProperty("weather")[0].GetProperty("description").GetString();
+    var humidity = json.RootElement.GetProperty("main").GetProperty("humidity").GetInt32();
+
+    return $"{temp}°C, {description}, humidity {humidity}%";
 }
+
+
+//static string GetWeather(string city, )
+//{
+//    return city.ToLower() switch
+//    {
+//        "paris" => "22°C, Sunny",
+//        "london" => "15°C, Cloudy",
+//        "cairo" => "35°C, Hot",
+//        _ => "20°C, Clear"
+//    };
+//}
 
 static string GetTime(string city)
 {
@@ -77,6 +98,13 @@ static string GetTime(string city)
         _ => "12:00 PM"
     };
 }
+
+messages.Add(new SystemChatMessage("""
+    You are a helpful travel assistant.
+    You only answer questions related to travel, weather, and time zones.
+    If asked anything else, politely decline.
+    Always be concise and friendly.
+"""));
 
 
 
@@ -110,7 +138,7 @@ while (true) // outer loop — one conversation turn per iteration
                 {
                     var args2 = JsonDocument.Parse(toolCall.FunctionArguments);
                     var city = args2.RootElement.GetProperty("city").GetString()!;
-                    result = GetWeather(city);
+                    result = await GetWeather(city, weatherApiKey);
                 }
                 else if (toolCall.FunctionName == "get_time")
                 {
